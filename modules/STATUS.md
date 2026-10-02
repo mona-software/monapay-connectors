@@ -47,3 +47,8 @@ php connectors/modules/prestashop-monapay/tests/hmac.php
 3. Chốt renderer QR nội bộ cho ba nền tảng PHP và mapping order/reference không đụng ID ngoài hệ thống.
 4. Với Ghost, chốt ý nghĩa entitlement sau label và đưa ledger vào database nếu chạy nhiều process. Với Bubble, đặt proxy sau HTTPS và unique constraint cho Transaction.
 5. Chỉ dùng credentials/merchant/terminal thật qua secret/config store của platform; không commit hoặc đưa vào browser HTML/log.
+
+## Gate PHP chạy 05/09/2026 (VPS money, PHP 8.0.30 CLI)
+- `php -l` 22 file PHP của magento2/opencart/prestashop: **PASS** (0 lỗi).
+- `php tests/hmac.php` cả 3 module: **PASS** (magento2: raw body mutation, stale timestamp, bad signature · opencart: bad webhook signature, return signature, return order mutation · prestashop: return changed order, unsigned cancel rejected, sha256 prefix rejected).
+- Chưa chạy: smoke test trên Magento/OpenCart/PrestaShop thật đúng version/theme (cần Docker/máy chủ thử).
