@@ -1,9 +1,11 @@
 # Thank-you Checkout UI extension
 
-Backend v1 cung cấp:
+Integration notes for a Shopify Checkout UI extension that shows the MONA Pay payment link and QR on the thank-you and order status pages. The extension code is not in this repository yet; this file describes the backend contract it must use.
+
+## Backend endpoint
 
 ```text
-GET https://shopify.monapay.vn/api/pay-link/{shopifyOrderId}
+GET <app-url>/api/pay-link/{shopifyOrderId}
 Authorization: Bearer <Shopify session token>
 ```
 
@@ -22,15 +24,19 @@ Response:
 }
 ```
 
-Extension cần được sinh/liên kết bằng Shopify CLI với Partner app thật, vì target và package Checkout UI phải khớp API version mà Shopify đang cấp cho app:
+The endpoint returns 404 until the `orders/create` webhook has created the checkout.
 
-1. Tại `shopify-app/`, liên kết app thuộc Partner org `5161213` và dev store `monapay-dev.myshopify.com`.
-2. Dùng Shopify CLI tạo Checkout UI extension cho Thank you / Order status page.
-3. Lấy Order GID và session token từ Checkout UI API. URL-encode GID khi gắn vào path.
-4. Gọi endpoint trên. Nếu nhận 404, thử lại có giới hạn vì `orders/create` có thể đang tạo checkout.
-5. Khi `status=pending`, render QR và nút **Thanh toán qua MONA Pay** mở `checkout_url`. Không tự tính lại amount hoặc order code ở client.
-6. Khi `status=paid`, hiện trạng thái đã nhận tiền và dừng polling.
-7. Bật network access tới `https://shopify.monapay.vn` nếu manifest của extension/API version yêu cầu, test accessibility và deploy bằng Shopify CLI.
+## Building the extension
+
+Generate and link the extension with Shopify CLI against your real Partner app, so the target and Checkout UI package match the API version Shopify grants the app.
+
+1. In `shopify-app/`, link the app to your Partner app and development store.
+2. Use Shopify CLI to create a Checkout UI extension for the Thank you / Order status page.
+3. Read the Order GID and a session token from the Checkout UI API. URL-encode the GID in the path.
+4. Call the endpoint above. On 404, retry a limited number of times.
+5. When `status` is `pending`, render the QR and a button that opens `checkout_url`. Do not recompute the amount or order code on the client.
+6. When `status` is `paid`, show that payment was received and stop polling.
+7. Allow network access to the app host if the extension manifest requires it, test accessibility and deploy with Shopify CLI.
 
 Pseudocode:
 
@@ -40,16 +46,18 @@ token = await checkoutApi.sessionToken.get()
 result = GET /api/pay-link/{encodeURIComponent(orderId)}
          Authorization: Bearer {token}
 
-404 -> chờ 2 giây, thử lại tối đa 10 lần
-200 + pending -> hiện qr_image_url và nút checkout_url
-200 + paid -> hiện "Đã nhận thanh toán"
-401 -> lấy session token mới một lần
+404 -> wait 2 seconds, retry up to 10 times
+200 + pending -> show qr_image_url and a checkout_url button
+200 + paid -> show "Payment received"
+401 -> fetch a new session token once
 ```
 
-Không đưa MONA Client Secret, Shopify offline token hoặc webhook secret vào extension.
+Never put the MONA Client Secret, the Shopify offline token or the webhook secret in the extension.
 
-Nguồn đối chiếu:
+References:
 
 - https://shopify.dev/docs/api/checkout-ui-extensions/latest
 - https://shopify.dev/docs/apps/build/checkout/thank-you-order-status
 - https://shopify.dev/docs/apps/build/authentication-authorization/session-tokens
+
+**MONA Pay is part of MONA Cloud by The MONA Group.**

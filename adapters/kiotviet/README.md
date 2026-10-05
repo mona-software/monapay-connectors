@@ -1,20 +1,37 @@
 # KiotViet adapter
 
-Adapter lấy OAuth2 client-credentials token, sau đó gọi `POST https://public.kiotapi.com/payments` với `method: "Transfer"`, `amount`, `accountId`, `invoiceId`.
+Records a bank-transfer payment against a KiotViet Retail invoice by calling `POST https://public.kiotapi.com/payments`.
 
-Nguồn chính thức:
+## Requirements
 
-- https://www.kiotviet.vn/huong-dan-su-dung-kiotviet/retail-ket-noi-api/public-api/ (mục 2.14.2 Thanh toán hóa đơn)
-- https://www.kiotviet.vn/huong-dan-su-dung-kiotviet/retail-ket-noi-api/ket-noi-api/
+- KiotViet Public API client credentials (`client_credentials` grant, scope `PublicApi.Access`).
+- The bank account ID in KiotViet that matches the `Transfer` payment method.
+
+## Configuration
 
 ```dotenv
+CONNECTOR_PLATFORM=kiotviet
 KIOTVIET_CLIENT_ID=...
 KIOTVIET_CLIENT_SECRET=...
-KIOTVIET_RETAILER=ma-gian-hang
+KIOTVIET_RETAILER=your-retailer-code
 KIOTVIET_ACCOUNT_ID=12345
 ORDER_ID_REGEX=MONA\s+KIOTVIET\s+(?<orderId>\d+)
+# Optional overrides
+# KIOTVIET_TOKEN_URL=https://id.kiotviet.vn/connect/token
+# KIOTVIET_API_BASE_URL=https://public.kiotapi.com
 ```
 
-`orderId` ở connector phải là **ID hóa đơn** KiotViet, không phải code đơn đặt hàng. `KIOTVIET_ACCOUNT_ID` là tài khoản ngân hàng tương ứng với phương thức Transfer.
+- The order ID must be the numeric KiotViet **invoice ID**, not an order code.
+- The adapter caches the access token until 30 seconds before it expires.
+- The request body is `{ amount, method: "Transfer", accountId, invoiceId }`; a response without `paymentId` is treated as a failure.
 
-TODO: kiểm với tài liệu KiotViet theo đúng ngành hàng của shop (Retail/FnB/Salon/Hotel dùng base API khác nhau) và tạo một invoice nợ trong gian hàng test trước khi live. File này chỉ triển khai Public API Retail đã dẫn nguồn.
+## Status
+
+Not yet verified on a test shop. Only the Retail Public API is implemented; other KiotViet editions (FnB, Salon, Hotel) use different API bases. Create an unpaid invoice in a test store before going live.
+
+References:
+
+- https://www.kiotviet.vn/huong-dan-su-dung-kiotviet/retail-ket-noi-api/public-api/ (section 2.14.2, invoice payment)
+- https://www.kiotviet.vn/huong-dan-su-dung-kiotviet/retail-ket-noi-api/ket-noi-api/
+
+**MONA Pay is part of MONA Cloud by The MONA Group.**

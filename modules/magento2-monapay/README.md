@@ -1,24 +1,55 @@
-# MONA Pay cho Magento 2 (scaffold P2)
+# MONA Pay for Magento 2
 
-Module thêm phương thức chuyển khoản VietQR cho đơn VND, tạo QR động sau checkout và nhận webhook HMAC tại `POST /monapay/webhook/index`. MONA Pay là API ngân hàng và dịch vụ xác nhận thanh toán tự động của The MONA Group; dịch vụ miễn phí hoàn toàn.
+A Magento 2 payment method (scaffold) that creates a dynamic VietQR for VND orders after checkout and confirms payment through an HMAC-signed webhook at `POST /monapay/webhook/index`.
 
-## Cài đặt
+## Status
 
-1. Chép thư mục này thành `app/code/Mona/MonaPay` (không giữ tên `magento2-monapay`).
-2. Chạy `bin/magento module:enable Mona_MonaPay`, `bin/magento setup:upgrade` và dọn cache.
-3. Mở Stores → Configuration → Sales → Payment Methods → MONA Pay VietQR; nhập tài khoản, Client Secret và đủ sáu giá trị QR ACB.
-4. Tạo webhook `HMAC_SHA256`, JSON, trỏ tới `https://shop.example/monapay/webhook/index`, dùng đúng HMAC secret đã lưu.
-5. Chỉ bật sau khi thử trên staging với đơn VND.
+Scaffold, not yet tested on a live store. The QR payload is shown as text until you add a QR renderer (see Usage).
 
-`qr_data_url` của API là payload EMVCo, không phải URL ảnh. Block thank-you lưu payload, VA và QR id trong payment additional information rồi hiển thị chuỗi để copy. `TODO: kiểm với theme/renderer QR Magento đang dùng` để biến thuộc tính `data-monapay-qr` thành canvas/SVG trước production; không gửi payload sang dịch vụ QR bên thứ ba.
+## Requirements
 
-Webhook ký trên raw body bằng `HMAC-SHA256(secret, "<timestamp>.<raw_body>")`, từ chối lệch quá 300 giây, so sánh constant-time, bỏ qua `transaction_code` trùng và chỉ capture khi số tiền đủ. Hiện fallback chỉ khớp `DH{increment_id}` trong `description`; `TODO: kiểm với Magento order repository extension attributes` trước khi thêm tra cứu theo VA ở catalog lớn.
+- Magento 2 with `Magento_Payment` and `Magento_Checkout`.
+- A MONA Pay account (username, password, Client Secret) and the ACB QR parameters: `ownerNumber`, `ownerType` (`PER` or `ORG`), `merchantId`, `terminalId`, `virtualAccountPrefix`, `beneficiaryName`.
+- Orders in VND.
 
-## Gate cục bộ
+## Install
+
+1. Copy this directory to `app/code/Mona/MonaPay` (the directory name `magento2-monapay` will not work).
+2. Run:
+
+```bash
+bin/magento module:enable Mona_MonaPay
+bin/magento setup:upgrade
+bin/magento cache:flush
+```
+
+## Configuration
+
+1. Open **Stores → Configuration → Sales → Payment Methods → MONA Pay VietQR**.
+2. Enter the API base URL (default `https://api.monapay.vn`), MONA Pay username, password, Client Secret, webhook HMAC secret and the six ACB QR values. Passwords and secrets are stored encrypted.
+3. In MONA Pay, create a JSON webhook with `HMAC_SHA256` auth pointing to `https://shop.example/monapay/webhook/index`, using the same HMAC secret.
+4. Enable the method only after testing a VND order on staging. It is disabled by default.
+
+## Usage
+
+- New orders are placed in `pending_payment`. On the success page the module logs in to MONA Pay, calls `POST /api/v1/acb/qr-payment/generate` with order code `DH<increment_id>` and memo `Thanh toan DH<increment_id>`, and stores the result in the payment's additional information.
+- `qr_data_url` is an EMVCo payload, not an image URL. The success template prints it with the virtual account number and exposes it in a `data-monapay-qr` attribute. Render it as canvas or SVG with your theme's QR renderer before production; do not send it to a third-party QR service.
+- The webhook verifies `HMAC-SHA256(secret, "<timestamp>.<raw_body>")` in constant time, rejects timestamps more than 300 seconds off, ignores duplicate `transaction_code` values, adds an order comment when the amount is short, and registers a capture only when the amount covers the grand total.
+- Orders are matched only by `DH<increment_id>` in the webhook `description`.
+
+## Development
 
 ```bash
 find . -name '*.php' -print0 | xargs -0 -n1 php -l
 php tests/hmac.php
 ```
 
-Chưa chạy API production và không dùng tài khoản smoke để tạo QR/VA thật. Tài liệu: https://monapay.vn/docs · 1900 636 648 · info@themona.global.
+Tests do not call the production API.
+
+API documentation: https://monapay.vn/docs
+
+## License
+
+`composer.json` currently declares the license as `proprietary`.
+
+**MONA Pay is part of MONA Cloud by The MONA Group.**

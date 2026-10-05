@@ -1,87 +1,106 @@
-# MONA Pay cho Shopify
+# MONA Pay for Shopify
 
-Ứng dụng Node.js 22, không dùng dependency ngoài, nối đơn thanh toán thủ công của Shopify với trang thanh toán hosted MONA Pay.
+A dependency-free Node.js app that connects Shopify manual-payment orders to the MONA Pay hosted checkout and marks them paid when MONA Pay confirms the payment.
 
-Luồng chính:
+## How it works
 
-1. Shopify gửi `orders/create` cho đơn `pending` dùng phương thức thủ công có tên chứa `MONA Pay`.
-2. Ứng dụng tạo checkout `SP<order_number>` tại MONA Pay, lưu link vào Additional details của đơn và gắn tag `monapay-pending`.
-3. Checkout UI extension đọc `GET /api/pay-link/{orderId}` bằng Shopify session token để hiện nút **Thanh toán qua MONA Pay** và QR.
-4. MONA Pay gửi `CHECKOUT_PAID`; ứng dụng xác thực HMAC trên raw body, đối chiếu checkout/mã đơn/số tiền, tạo Shopify sale transaction và đổi tag sang `monapay-paid`.
+1. Shopify sends `orders/create` for a `pending` order whose manual payment method name contains `MONA Pay`.
+2. The app creates a MONA Pay checkout with order code `SP<order_number>`, saves the link as the order's Additional details entry `MONA Pay link` and adds the tag `monapay-pending`.
+3. A Checkout UI extension reads `GET /api/pay-link/{orderId}` with a Shopify session token to show the payment button and QR on the thank-you page.
+4. MONA Pay sends `CHECKOUT_PAID`. The app verifies the HMAC on the raw body, matches checkout, order code and amount, marks the order paid (GraphQL `orderMarkAsPaid`, with a REST transactions fallback) and changes the tag to `monapay-paid`.
 
-## Cài cho merchant: 5 bước
+## Requirements
 
-1. Cài ứng dụng từ Shopify hoặc mở URL cài đặt do MONA cung cấp. Shopify sẽ hỏi quyền `read_orders,write_orders` và đưa anh chị về trang cài đặt của ứng dụng.
-2. Trong Shopify Admin, vào **Settings → Payments → Manual payment methods → Create custom payment method**. Đặt tên **Chuyển khoản MONA Pay**. Tên phải chứa đúng cụm `MONA Pay`.
-3. Tại my.monapay.vn, vào **API Keys**, tạo key rồi dán **MONA Client ID** và **MONA Client Secret** vào trang cài đặt. Bấm **Kiểm tra**, bật **sandbox** nếu đang thử, sau đó bấm **Lưu cấu hình**. Ứng dụng tự tạo webhook MONA Pay; anh chị không cần chép webhook secret.
-4. Tạo một đơn VND, chọn **Chuyển khoản MONA Pay** và để trạng thái thanh toán `pending`. Khi webhook đến, đơn có tag `monapay-pending` và Additional details tên `MONA Pay link`. Trang cảm ơn sẽ lấy cùng link từ backend cho extension.
-5. Thử thanh toán và kiểm đơn tự chuyển sang `paid`, tag thành `monapay-paid`. Khi đưa vào dùng thật, bỏ chọn sandbox, lưu lại, rồi thử một khoản nhỏ bằng tài khoản ngân hàng đã nối với MONA Pay.
+- Node.js 22 or later. No `npm install` is needed; the app uses only Node built-ins.
+- A Shopify Partner app with scopes `read_orders,write_orders`.
+- A MONA Pay API key (Client ID and Client Secret) per merchant.
 
-Không dùng thao tác **Send invoice** cho luồng này. Invoice của Shopify là một luồng thu tiền khác.
+## Configuration
 
-## Endpoint
+The app does not read `.env` itself. Load variables with `source` in development or systemd `EnvironmentFile` in production. See `.env.example`:
 
-| Method | Path | Mục đích |
+| Variable | Default | Notes |
 | --- | --- | --- |
-| `GET` | `/auth?shop=<shop>.myshopify.com` | Bắt đầu OAuth offline token |
-| `GET` | `/auth/callback` | Xác thực state/HMAC, đổi token, đăng ký webhook |
-| `GET` | `/settings?shop=...` | Trang cấu hình merchant; yêu cầu session token hoặc cookie ký HMAC |
-| `POST` | `/settings/test?shop=...` | Kiểm tra MONA credentials, chưa lưu |
-| `POST` | `/settings/save?shop=...` | Lưu credentials mã hóa và tự tạo/cập nhật webhook MONA Pay |
-| `POST` | `/webhooks/orders-create` | Shopify tạo đơn |
+| `SHOPIFY_API_KEY` | | Partner app client ID |
+| `SHOPIFY_API_SECRET` | | Partner app client secret |
+| `SHOPIFY_APP_URL` | | Public HTTPS URL of the app |
+| `SHOPIFY_SCOPES` | `read_orders,write_orders` | |
+| `SHOPIFY_API_VERSION` | `2026-07` | |
+| `APP_SECRET_KEY` | | At least 32 random characters, e.g. `openssl rand -base64 48` |
+| `MONAPAY_API_BASE` | `https://api.monapay.vn` | |
+| `HOST` | `127.0.0.1` | Non-loopback hosts need `ALLOW_PUBLIC_BIND=true` |
+| `PORT` | `8793` | |
+| `DATA_DIR` | `./data` | `.env.example` uses `/var/lib/monapay-shopify` |
+| `OUTBOUND_TIMEOUT_MS` | `5000` | Max `30000` |
+
+Keep `APP_SECRET_KEY` stable and backed up. Changing or losing it makes stored tokens and secrets undecryptable.
+
+### Shopify app setup
+
+1. Replace `REPLACE_WITH_SHOPIFY_API_KEY` in `shopify.app.toml` with your app's client ID, and update `application_url` and `redirect_urls` if you host the app elsewhere.
+2. In the Shopify Dev Dashboard, set the App URL and the allowed redirect URL `<app-url>/auth/callback`.
+3. Check that scopes are `read_orders,write_orders` and the webhook API version is `2026-07`.
+4. Run `shopify app deploy` to publish the five webhook subscriptions in `shopify.app.toml`.
+5. Install on a store with `<app-url>/auth?shop=<store>.myshopify.com`.
+
+During OAuth the app also registers shop-specific `orders/create` and `app/uninstalled` webhooks. Webhook IDs and order IDs are deduplicated, so repeated deliveries do not create extra checkouts.
+
+## Usage (merchant)
+
+1. Install the app. Shopify asks for `read_orders,write_orders` and returns to the app's settings page.
+2. In Shopify Admin, go to **Settings → Payments → Manual payment methods → Create custom payment method** and create a method whose name contains `MONA Pay`, for example *Chuyển khoản MONA Pay*.
+3. In the MONA Pay dashboard, create an API key. Paste the Client ID and Client Secret into the settings page, click **Kiểm tra** (test), enable sandbox if you are testing, then click **Lưu cấu hình** (save). The settings page is in Vietnamese. The app creates or updates the MONA Pay webhook itself.
+4. Place a VND order with that payment method. The order gets the `monapay-pending` tag and the `MONA Pay link` entry.
+5. Pay and check that the order becomes `paid` with tag `monapay-paid`. For live use, turn off sandbox, save, and test a small real payment.
+
+Do not use Shopify's **Send invoice** action for these orders; it is a separate payment flow.
+
+## Endpoints
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/auth?shop=<shop>.myshopify.com` | Start OAuth (offline token) |
+| `GET` | `/auth/callback` | Verify state and HMAC, exchange token, register webhooks |
+| `GET` | `/settings?shop=...` | Merchant settings page; needs a session token or HMAC-signed cookie |
+| `POST` | `/settings/test?shop=...` | Test MONA Pay credentials without saving |
+| `POST` | `/settings/save?shop=...` | Save encrypted credentials and create or update the MONA Pay webhook |
+| `POST` | `/webhooks/orders-create` | Shopify order created |
 | `POST` | `/webhooks/monapay` | MONA Pay `CHECKOUT_PAID` |
-| `POST` | `/webhooks/app-uninstalled` | Xóa token và dữ liệu shop |
-| `POST` | `/webhooks/customers-data-request` | Compliance: ứng dụng không lưu dữ liệu khách hàng |
-| `POST` | `/webhooks/customers-redact` | Compliance: ứng dụng không lưu dữ liệu khách hàng |
-| `POST` | `/webhooks/shop-redact` | Compliance: xóa toàn bộ dữ liệu shop |
-| `GET` | `/api/pay-link/{orderId}` | Link và QR cho extension; yêu cầu Shopify session token |
-| `GET` | `/healthz` | Healthcheck nội bộ |
+| `POST` | `/webhooks/app-uninstalled` | Delete the shop's token and data |
+| `POST` | `/webhooks/customers-data-request` | Compliance; the app stores no customer data |
+| `POST` | `/webhooks/customers-redact` | Compliance; the app stores no customer data |
+| `POST` | `/webhooks/shop-redact` | Compliance; delete all shop data |
+| `GET` | `/api/pay-link/{orderId}` | Link and QR for the extension; needs a Shopify session token |
+| `GET` | `/healthz` | Internal health check |
 
-`/api/pay-link/{orderId}` chấp nhận ID số hoặc Shopify Order GID đã URL-encode, với header `Authorization: Bearer <Shopify session token>`. Response chỉ trả dữ liệu checkout của đúng shop trong claim `dest`.
+`/api/pay-link/{orderId}` accepts a numeric ID or a URL-encoded Shopify Order GID with `Authorization: Bearer <Shopify session token>`. It returns only checkouts belonging to the shop in the token's `dest` claim, and 404 until the checkout exists.
 
-## Chạy cho dev
-
-Yêu cầu Node.js 22. Không chạy `npm install`; dự án chỉ dùng Node built-in.
+## Development
 
 ```bash
-cd /opt/monapay-shopify
 cp .env.example .env
-# Điền credentials và tạo APP_SECRET_KEY ngẫu nhiên trước khi chạy.
+# Fill in credentials and generate APP_SECRET_KEY before starting.
 set -a
 source .env
 set +a
 node server.js
 ```
 
-Ứng dụng không tự đọc file `.env`. Production dùng `EnvironmentFile` của systemd. `APP_SECRET_KEY` cần giữ ổn định và backup an toàn; đổi hoặc mất key sẽ làm các token/secret đã lưu không giải mã được.
-
-Chạy test:
+Run tests:
 
 ```bash
 npm test
-# tương đương: node --test test/app.test.js test/crypto.test.js
+# same as: node --test test/app.test.js test/crypto.test.js
 ```
 
-Node 22.22 trong workspace không tự quét directory khi chạy `node --test test/`; cần liệt kê file như trên.
+Test files are listed explicitly because `node --test test/` does not scan the directory on Node 22.22.
 
-## Liên kết Partner app và dev store
+### Sandbox end-to-end test
 
-Partner organization: `5161213`. Development store: `monapay-dev.myshopify.com`.
-
-1. Thay `REPLACE_WITH_SHOPIFY_API_KEY` trong `shopify.app.toml` bằng client ID của app.
-2. Trong Shopify Dev Dashboard, đặt App URL `https://shopify.monapay.vn` và allowed redirect URL `https://shopify.monapay.vn/auth/callback`.
-3. Kiểm scopes là `read_orders,write_orders` và webhook API version là `2026-07`.
-4. Chạy `shopify app deploy` để phát hành cấu hình năm webhook trong `shopify.app.toml`.
-5. Cài bằng `https://shopify.monapay.vn/auth?shop=monapay-dev.myshopify.com`.
-
-OAuth cũng đăng ký shop-specific `orders/create` và `app/uninstalled` theo yêu cầu v1. Webhook ID và order ID đều được chống trùng, nên delivery lặp không tạo thêm checkout.
-
-## Test trọn luồng sandbox trên dev store
-
-1. Bật sandbox trong trang cài đặt app.
-2. Tạo đơn VND với manual payment **Chuyển khoản MONA Pay**. Kiểm đơn có `monapay-pending` và `MONA Pay link`.
-3. Mở link `https://pay.monapay.vn/c/<token>`. Trang phải ghi rõ đây là phiên thử; không chuyển tiền thật.
-4. Trong my.monapay.vn, tìm checkout theo mã `SP<order_number>` để lấy VA `SBX…`. Lấy Bearer token bằng client credentials, rồi bắn giao dịch giả đúng VA, amount và order code:
+1. Enable sandbox on the settings page.
+2. Create a VND order with the MONA Pay manual method. Check for `monapay-pending` and `MONA Pay link`.
+3. Open the `https://pay.monapay.vn/c/<token>` link. It should say this is a test session; no real money moves.
+4. In the MONA Pay dashboard, find the checkout by `SP<order_number>` to get its `SBX…` virtual account. Get a Bearer token with client credentials and send a simulated transaction:
 
 ```bash
 curl -X POST https://api.monapay.vn/api/v1/sandbox/transactions \
@@ -91,14 +110,14 @@ curl -X POST https://api.monapay.vn/api/v1/sandbox/transactions \
   -d '{"virtual_account_number":"SBX...","amount":150000,"description":"SP1001","transaction_code":"SANDBOX-SP1001-01"}'
 ```
 
-5. Kiểm MONA Pay phát `CHECKOUT_PAID`; Shopify có sale transaction `gateway: MONA Pay`, đơn thành `paid` và tag là `monapay-paid`.
-6. Gửi lại cùng `transaction_code`; ứng dụng phải trả 200 và không tạo transaction thứ hai.
+5. Check that MONA Pay sends `CHECKOUT_PAID`, the Shopify order becomes `paid` and the tag is `monapay-paid`.
+6. Resend the same `transaction_code`; the app must return 200 without recording a second payment.
 
-Nên thử thêm đơn sai currency, đơn dùng cổng khác và checkout thiếu tiền. Các trường hợp đó không được đánh dấu Shopify là đã thanh toán.
+Also test a non-VND order, an order using another gateway, and an underpaid checkout. None of these should be marked paid.
 
-## Deploy Ubuntu với systemd và Nginx
+## Deploy (Ubuntu, systemd, Nginx)
 
-Các file mẫu nằm trong `deploy/`.
+Sample files are in `deploy/`. They use the hostname `shopify.monapay.vn`; replace it with yours.
 
 ```bash
 sudo useradd --system --home /var/lib/monapay-shopify --shell /usr/sbin/nologin monapay-shopify
@@ -114,50 +133,39 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now monapay-shopify
 ```
 
-Điền secret thật trong `/etc/monapay-shopify.env` trước khi start. Nginx chuyển nguyên request body tới Node; không thêm JSON parser/proxy làm serialize lại body webhook. Cấp chứng chỉ TLS cho `shopify.monapay.vn` trước khi bật server block 443.
+Fill in real secrets in `/etc/monapay-shopify.env` before starting, and issue a TLS certificate before enabling the 443 server block. Nginx must pass the request body through unchanged; do not add a proxy or parser that re-serializes webhook bodies.
 
-Kiểm sau deploy:
+After deploying:
 
 ```bash
 curl -fsS http://127.0.0.1:8793/healthz
-curl -fsS https://shopify.monapay.vn/healthz
+curl -fsS https://<app-host>/healthz
 systemctl status monapay-shopify
 journalctl -u monapay-shopify -n 100 --no-pager
 ```
 
-## Dữ liệu và bảo mật
+## Data and security
 
-- Store mặc định là `$DATA_DIR/store.json`, file mode `0600`, thư mục mode `0700`.
-- Ghi file qua temporary file + atomic rename, và dùng lock file chống hai process ghi đè nhau.
-- Shopify access token, MONA Client Secret và MONA webhook secret được mã hóa AES-256-GCM bằng key dẫn xuất từ `APP_SECRET_KEY`.
-- HMAC Shopify và MONA Pay luôn tính trên raw request bytes. Timestamp MONA Pay lệch quá 300 giây bị từ chối.
-- Ứng dụng không lưu tên, email, địa chỉ hoặc ID khách hàng. `customers/data_request` và `customers/redact` vì vậy chỉ xác thực, ghi audit log tối thiểu và trả 200.
-- JSON store phù hợp một instance v1. Không chạy nhiều node cùng lúc nếu không dùng shared filesystem; trước khi scale ngang cần chuyển sang database có unique constraints.
+- The store is `$DATA_DIR/store.json` (file mode `0600`, directory mode `0700`), written via a temporary file and atomic rename, with a lock file against concurrent writers.
+- Shopify access tokens, MONA Client Secrets and MONA webhook secrets are encrypted with AES-256-GCM using a key derived from `APP_SECRET_KEY`.
+- Shopify and MONA Pay HMACs are computed on the raw request bytes. MONA Pay timestamps more than 300 seconds off are rejected.
+- The app stores no customer names, emails, addresses or IDs, so `customers/data_request` and `customers/redact` only verify the request, write a minimal audit log and return 200.
+- The JSON store supports a single instance. Move to a database with unique constraints before scaling horizontally.
 
 ## Thank-you extension
 
-Backend đã sẵn sàng cho Checkout UI extension. Xem `extensions/thank-you/README.md`. Extension phải lấy Order GID cùng session token của Shopify, gọi `/api/pay-link/{orderId}`, poll ngắn khi nhận 404, rồi hiện nút **Thanh toán qua MONA Pay** và QR do backend trả về. Không tự tính amount ở client.
+The backend is ready for a Checkout UI extension; see [`extensions/thank-you/README.md`](extensions/thank-you/README.md). The extension itself is not included yet.
 
-## Checklist nộp Shopify App Store
+## Known limitation
 
-- Hoàn thiện listing tiếng Việt/Anh, icon, screenshot và mô tả rõ đây là manual bank-transfer automation.
-- Privacy policy: `https://monapay.vn/chinh-sach-bao-mat`.
-- Support email: `info@themona.global`.
-- Quay video demo: cài app → cấu hình key → tạo manual order → mở hosted checkout → sandbox transaction → Shopify order paid.
-- Deploy và dùng Shopify automated check kiểm đủ ba compliance webhooks; invalid HMAC phải nhận 401.
-- Khai báo đúng việc app đọc/ghi đơn hàng và hoàn tất biểu mẫu protected customer data nếu Shopify yêu cầu.
-- Cung cấp reviewer test credentials và hướng dẫn tạo manual payment method.
-- Test uninstall/reinstall, xóa shop data, retry webhook và key rotation.
-- Chuyển thank-you extension từ scaffold CLI thành extension production rồi deploy cùng app version.
+Webhook registration, order updates and the payment fallback use the REST Admin API (`webhooks.json`, `orders/{id}.json`, `orders/{id}/transactions.json`). Shopify treats REST Admin as legacy and requires new public apps to use GraphQL Admin, so these calls must be moved to GraphQL (or cleared with Shopify) before App Store submission.
 
-Lưu ý kỹ thuật: REST Admin API đã là legacy và Shopify yêu cầu public app mới dùng GraphQL Admin API. Brief v1 yêu cầu rõ các REST endpoint `webhooks.json`, `orders/{id}.json` và `transactions.json`, nên bản này giữ đúng hợp đồng để chạy dev store. Trước khi gửi review App Store, cần xác nhận với Shopify hoặc chuyển các thao tác còn lại sang GraphQL; đây là gate bắt buộc, không nên bỏ qua.
-
-Tài liệu tham chiếu:
+References:
 
 - https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/authorization-code-grant
 - https://shopify.dev/docs/apps/build/webhooks/subscribe
 - https://shopify.dev/docs/apps/build/compliance/privacy-law-compliance
 - https://shopify.dev/docs/apps/build/authentication-authorization/session-tokens
-- https://monapay.vn/docs/api/trang-thanh-toan.md
-- https://monapay.vn/docs/api/xac-thuc.md
-- https://monapay.vn/docs/api/sandbox.md
+- MONA Pay API: https://monapay.vn/docs
+
+**MONA Pay is part of MONA Cloud by The MONA Group.**

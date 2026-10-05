@@ -1,20 +1,31 @@
 # WooCommerce adapter
 
-Adapter gọi WooCommerce REST API v3 `PUT /wp-json/wc/v3/orders/{id}` với `{ "set_paid": true }`.
+Marks a WooCommerce order as paid by calling REST API v3 `PUT /wp-json/wc/v3/orders/{id}` with `{ "set_paid": true }`.
 
-Nguồn chính thức:
+## Requirements
 
-- https://woocommerce.github.io/woocommerce-rest-api-docs/#update-an-order
-- https://woocommerce.github.io/woocommerce-rest-api-docs/#order-properties (`set_paid`)
-- https://developer.woocommerce.com/docs/apis/rest-api/
+- A WooCommerce REST API key with Read/Write permission.
+- HTTPS on the store, since the key is sent with Basic authentication.
+
+## Configuration
 
 ```dotenv
+CONNECTOR_PLATFORM=woocommerce
 WOOCOMMERCE_STORE_URL=https://shop.example.com
 WOOCOMMERCE_CONSUMER_KEY=ck_...
 WOOCOMMERCE_CONSUMER_SECRET=cs_...
 ORDER_ID_REGEX=MONA\s+WOOCOMMERCE\s+(?<orderId>\d+)
 ```
 
-Tạo REST API key có quyền Read/Write và luôn dùng HTTPS để Basic Auth không lộ secret. `orderId` phải là internal order ID của WooCommerce.
+The order ID must be the internal WooCommerce order ID.
 
-TODO: chạy staging order với đúng plugin/gateway của shop để xác nhận hook phát sinh từ `set_paid` không gây gửi email hoặc automation ngoài ý muốn.
+## Status
+
+Not yet verified on a test shop. Run a staging order with your own plugins and gateways to check that the hooks fired by `set_paid` do not send unexpected emails or trigger other automation.
+
+References:
+
+- https://woocommerce.github.io/woocommerce-rest-api-docs/#update-an-order
+- https://developer.woocommerce.com/docs/apis/rest-api/
+
+**MONA Pay is part of MONA Cloud by The MONA Group.**

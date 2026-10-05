@@ -1,40 +1,59 @@
-# MONA Pay cho OpenCart 4.1
+# MONA Pay for OpenCart 4.1
 
-Payment extension dùng hosted checkout của MONA Pay. Khi xác nhận đơn VND, extension lấy token bằng OAuth client credentials, gọi `POST /api/v1/checkouts` và chuyển khách sang `https://pay.monapay.vn/c/<token>`.
+An OpenCart 4.1 payment extension that sends VND orders to the MONA Pay hosted checkout and confirms payment through an HMAC-signed webhook.
 
-Phiên thanh toán hỗ trợ `sandbox: true`, redirect quay lại có chữ ký HMAC và webhook `CHECKOUT_PAID`. Webhook được kiểm bằng `X-Mona-Signature = sha256=<HMAC_SHA256(secret, "<timestamp>.<raw_body>")>`, chỉ chấp nhận timestamp lệch tối đa 300 giây và chống xử lý trùng theo `transaction_code`.
+## Requirements
 
-## Phiên bản và cấu trúc
+- OpenCart `4.1.0.4` (the tested target), PHP 8.1 or later.
+- A MONA Pay API key (Client ID and Client Secret), a webhook HMAC secret and the return signature secret.
+- Store currency VND. The method is hidden for other currencies, and order totals must be between 1,000 and 1,000,000,000 VND.
 
-- Mục tiêu: OpenCart `4.1.0.4`, PHP 8.1 trở lên.
-- Cây `upload/` dùng để chép trực tiếp vào web root. Sau khi chép, controller nằm tại `extension/monapay/admin/controller/payment/monapay.php`.
-- OpenCart 4 Installer tạo namespace extension từ tên file `.ocmod.zip`. Khi đóng gói để upload bằng admin, đặt `install.json` và ba thư mục `admin/`, `catalog/`, `system/` bên trong `upload/extension/monapay/` ở ngay root của zip; không đưa tầng `upload/extension/monapay` vào zip.
+## Install
 
-Demo Docker ở `handoff/opencart-demo` cài bằng cách chép cây `upload/`, thêm package `code=monapay` vào `extension_install`, thêm record `extension=monapay, type=payment, code=monapay` vào `extension`, cấp quyền cho Top Administrator và tạo hai bảng riêng của module.
+Copy into the web root:
 
-## Cấu hình
+```bash
+cp -a upload/. /path/to/opencart/
+```
 
-- API base URL: `https://api.monapay.vn`
-- Client ID và Client Secret: API key trên `my.monapay.vn`
-- Webhook HMAC secret: secret của webhook JSON + `HMAC_SHA256`
-- Return signature secret: secret của Cài đặt → Trang thanh toán; đây không phải webhook secret
-- Payment mode: `redirect`
-- Sandbox: khi bật, request tạo checkout gửi JSON boolean `sandbox: true`
-- Paid order status: trạng thái OpenCart sau khi xác nhận đủ tiền
+The admin controller then lives at `extension/monapay/admin/controller/payment/monapay.php`.
 
-Webhook URL:
+To install through the admin Installer instead, build an `.ocmod.zip` whose root contains `install.json` plus the `admin/`, `catalog/` and `system/` folders from `upload/extension/monapay/` (do not include the `upload/extension/monapay` path itself). OpenCart derives the extension namespace from the zip file name, so name it `monapay.ocmod.zip`.
+
+Then open **Extensions → Extensions → Payments**, install **MONA Pay** and edit it. Installing creates two tables: `monapay_checkout` (order to checkout mapping) and `monapay_transaction` (processed `transaction_code` ledger).
+
+## Configuration
+
+| Field | Value |
+| --- | --- |
+| API base URL | `https://api.monapay.vn` (HTTPS required) |
+| Client ID / Client Secret | Your MONA Pay API key |
+| Webhook HMAC secret | Secret of the JSON + `HMAC_SHA256` webhook |
+| Return signature secret | From MONA Pay **Settings → Payment page**; not the webhook secret |
+| Payment mode | `redirect` (the only supported mode) |
+| Sandbox | Adds `"sandbox": true` to new checkouts; no real money moves |
+| Paid order status | OpenCart status set after full payment |
+
+Register this webhook URL in MONA Pay:
 
 ```text
 https://shop.example/index.php?route=extension/monapay/payment/monapay.webhook
 ```
 
-Return URL được module tự tạo với route `extension/monapay/payment/monapay.callback`. Callback kiểm chữ ký redirect, rồi gọi `GET /api/v1/checkouts/{id}` server-side trước khi cập nhật đơn. Webhook vẫn là nguồn xác nhận chính; callback là lớp đối soát dự phòng cho trải nghiệm quay lại cửa hàng.
+## Usage
 
-## Kiểm tra tĩnh
+1. On order confirmation the extension gets an OAuth client-credentials token, calls `POST /api/v1/checkouts` with order code `DH<order_id>` (idempotency key `opencart-<order_id>`, 15-minute expiry) and redirects the customer to the returned `checkout_url`.
+2. The webhook verifies `X-Mona-Signature = sha256=HMAC_SHA256(secret, "<timestamp>.<raw_body>")`, rejects timestamps more than 300 seconds off, and handles `CHECKOUT_PAID` (matching checkout ID and order code) and `TRANSACTION_IN` (matching `DH<order_id>` in the description).
+3. Duplicate `transaction_code` values are ignored; underpaid amounts do not change the order.
+4. The return URL (`extension/monapay/payment/monapay.callback`) is added automatically. It verifies the redirect signature, then calls `GET /api/v1/checkouts/{id}` server-side before updating the order. The webhook remains the primary confirmation.
+
+## Development
 
 ```bash
 find upload tests -name '*.php' -print0 | xargs -0 -n1 php -l
 php tests/hmac.php
 ```
 
-Tài liệu API: https://monapay.vn/docs/api/trang-thanh-toan.md
+API documentation: https://monapay.vn/docs
+
+**MONA Pay is part of MONA Cloud by The MONA Group.**

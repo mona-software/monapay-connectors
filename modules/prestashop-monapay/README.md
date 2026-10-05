@@ -1,38 +1,15 @@
-# MONA Pay Hosted Checkout cho PrestaShop 8
+# MONA Pay for PrestaShop 8
 
-Payment module cho PrestaShop 8.x. Module tạo đơn VND ở trạng thái **Chờ
-thanh toán MONA Pay**, gọi hosted checkout rồi chuyển khách sang
-`checkout_url` tại `pay.monapay.vn`.
+A PrestaShop 8.x payment module that creates a pending VND order, sends the customer to the MONA Pay hosted checkout and confirms payment through an HMAC-signed webhook.
 
-## Luồng thanh toán
+## Requirements
 
-1. `hookPaymentOptions()` thêm phương thức **Thanh toán qua MONA Pay**.
-2. `controllers/front/validation.php` tạo order chờ thanh toán, lấy OAuth
-   token bằng client credentials, gọi `POST /api/v1/checkouts` với
-   `Idempotency-Key` và redirect khách sang `checkout_url`.
-3. MONA Pay gọi `/module/monapay/webhook`; module xác minh HMAC-SHA256 trên
-   raw body, cửa sổ timestamp 300 giây, chỉ xử lý `CHECKOUT_PAID` khớp đúng
-   checkout, mã đơn và số tiền.
-4. Module chống trùng bằng primary key `transaction_code`, rồi đổi đơn sang
-   trạng thái PrestaShop **Payment accepted**.
-5. `/module/monapay/return` xác minh chữ ký redirect, gọi lại
-   `GET /api/v1/checkouts/{id}` và chỉ xác nhận đơn khi kết quả server-side là
-   `paid`. Webhook/API là nguồn sự thật; query trên trình duyệt không đủ để
-   giao hàng.
+- PrestaShop 8.0 to 8.x.
+- A MONA Pay API key (Client ID and Client Secret), a webhook HMAC secret and the return signature secret.
 
-Module dùng ba bảng:
+## Install
 
-- `ps_monapay_checkout`: ánh xạ order ↔ hosted checkout và trạng thái.
-- `ps_monapay_transaction`: ledger chống xử lý trùng theo
-  `transaction_code`.
-- `ps_monapay_token`: cache access token OAuth đến trước hạn 60 giây.
-
-Hai bảng đầu được giữ lại khi uninstall để không mất dữ liệu đối soát. Bảng
-token và toàn bộ secret cấu hình được xóa.
-
-## Cài đặt
-
-Thư mục cài trong PrestaShop bắt buộc tên `monapay`:
+The module directory inside PrestaShop must be named `monapay`:
 
 ```bash
 cp -a prestashop-monapay /var/www/html/modules/monapay
@@ -40,42 +17,58 @@ cd /var/www/html
 php bin/console prestashop:module install monapay --no-interaction
 ```
 
-Vào Module Manager → MONA Pay → Configure và nhập:
+Installing adds the order state **Awaiting MONA Pay payment** (Vietnamese: *Chờ thanh toán MONA Pay*) and three tables:
 
-- Base URL: `https://api.monapay.vn`
-- Client ID và Client Secret của API key MONA Pay
-- Webhook Secret của cấu hình webhook HMAC
-- Return Signature Secret trong Cài đặt → Trang thanh toán
-- Sandbox: bật để request tạo checkout có `"sandbox": true`
+- `ps_monapay_checkout`: order to hosted checkout mapping and status.
+- `ps_monapay_transaction`: processed `transaction_code` ledger.
+- `ps_monapay_token`: OAuth access token cache, refreshed 60 seconds before expiry.
 
-`Webhook Secret` và `Return Signature Secret` là hai secret khác nhau. Các ô
-secret để trống khi lưu sẽ giữ giá trị hiện tại.
+On uninstall the token table and all configuration values (including secrets) are deleted; the checkout and transaction tables are kept for reconciliation.
 
-Webhook cần đăng ký trên MONA Pay:
+## Configuration
+
+Open **Module Manager → MONA Pay → Configure**:
+
+| Field | Value |
+| --- | --- |
+| Base URL | `https://api.monapay.vn` (default) |
+| Client ID / Client Secret | Your MONA Pay API key |
+| Webhook Secret | Secret of the HMAC webhook |
+| Return Signature Secret | From MONA Pay **Settings → Payment page**; not the webhook secret |
+| Sandbox | On by default after install; adds `"sandbox": true` to new checkouts |
+
+Secret fields left empty on save keep their current value.
+
+Register this webhook in MONA Pay:
 
 ```text
-https://TEN-MIEN/module/monapay/webhook
+https://your-domain/module/monapay/webhook
 ```
 
 - Method: `POST`
 - Payload: `application/json`
 - Auth: `HMAC_SHA256`
-- Event cần dùng: `CHECKOUT_PAID`
+- Event: `CHECKOUT_PAID`
 
-Return URL được module tự gửi khi tạo checkout:
+The return URL `https://your-domain/module/monapay/return` is sent automatically when a checkout is created.
 
-```text
-https://TEN-MIEN/module/monapay/return
-```
+## Usage
 
-## Kiểm tra tĩnh
+1. `hookPaymentOptions()` adds the payment option (button label: *Thanh toán qua MONA Pay*).
+2. `controllers/front/validation.php` creates the order in the pending state, gets an OAuth client-credentials token, calls `POST /api/v1/checkouts` with order code `DH<id_order>` and an `Idempotency-Key`, and redirects to `checkout_url`.
+3. MONA Pay calls `/module/monapay/webhook`. The module verifies HMAC-SHA256 on the raw body with a 300-second timestamp window and processes only `CHECKOUT_PAID` events that match the checkout, order code and amount.
+4. The module records `transaction_code` (primary key, so duplicates are ignored) and moves the order to **Payment accepted**.
+5. `/module/monapay/return` verifies the redirect signature, calls `GET /api/v1/checkouts/{id}` and confirms the order only if the server-side status is `paid`. The browser query string alone never confirms an order.
+
+## Development
 
 ```bash
 find . -name '*.php' -print0 | xargs -0 -n1 php -l
 php tests/hmac.php
 ```
 
-Sau đó kiểm thử trên staging: checkout guest, sandbox đủ tiền, thiếu tiền,
-gửi lại cùng `transaction_code`, return sai chữ ký và webhook quá 300 giây.
+Then test on staging: guest checkout, sandbox full payment, underpayment, a repeated `transaction_code`, a return with a bad signature, and a webhook older than 300 seconds.
 
-Tài liệu API: https://monapay.vn/docs/api/trang-thanh-toan.md
+API documentation: https://monapay.vn/docs
+
+**MONA Pay is part of MONA Cloud by The MONA Group.**

@@ -1,22 +1,34 @@
 # Shopify adapter
 
-Adapter gọi Admin GraphQL mutation `orderMarkAsPaid(input: {id})`, mutation chính thức dùng để ghi nhận khoản thanh toán nhận ngoài checkout.
+Marks a Shopify order as paid by calling the Admin GraphQL mutation `orderMarkAsPaid(input: {id})`.
 
-Nguồn chính thức:
+## Requirements
 
-- https://shopify.dev/docs/api/admin-graphql/latest/mutations/orderMarkAsPaid
-- https://shopify.dev/docs/api/admin-graphql/latest/input-objects/OrderMarkAsPaidInput
-- https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/generate-app-access-tokens-admin
+- An installed Shopify app with an Admin API access token and the `write_orders` scope (`read_orders` is useful for reconciliation).
+- The order must use a manual payment method and still have a positive outstanding balance; otherwise Shopify returns `userErrors` and the connector reports a failure.
 
-Biến bắt buộc:
+## Configuration
 
 ```dotenv
+CONNECTOR_PLATFORM=shopify
 SHOPIFY_SHOP=example.myshopify.com
 SHOPIFY_ACCESS_TOKEN=shpat_...
 SHOPIFY_API_VERSION=2026-07
 ORDER_ID_REGEX=MONA\s+SHOPIFY\s+(?<orderId>\d+)
 ```
 
-Cần app Shopify đã install, Admin API access token và scope `write_orders` (thường thêm `read_orders` để đối soát). Chốt một API version còn được Shopify hỗ trợ thay vì dùng `latest` trong production.
+- `SHOPIFY_SHOP` must be a `*.myshopify.com` domain.
+- `SHOPIFY_API_VERSION` must use the `YYYY-MM` form; pin a version Shopify still supports.
+- The order ID can be numeric or a full `gid://shopify/Order/...` GID.
 
-TODO: kiểm với tài liệu Shopify và test shop trước khi live rằng đơn dùng manual payment còn positive outstanding balance; mutation sẽ trả `userErrors` nếu đơn đã paid hoặc không còn số dư.
+## Status
+
+Not yet verified on a test shop. Before going live, confirm the mutation succeeds on a manual-payment order in your own store.
+
+References:
+
+- https://shopify.dev/docs/api/admin-graphql/latest/mutations/orderMarkAsPaid
+- https://shopify.dev/docs/api/admin-graphql/latest/input-objects/OrderMarkAsPaidInput
+- https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/generate-app-access-tokens-admin
+
+**MONA Pay is part of MONA Cloud by The MONA Group.**
