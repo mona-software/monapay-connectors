@@ -13,3 +13,5 @@ node --test connectors
 ```
 
 Đọc `STATUS.md` trước khi live. Đặc biệt, mỗi nền tảng cần credential/test shop riêng và mapping `ORDER_ID_REGEX` khớp nội dung QR mà shop tạo ra.
+
+**MONA Pay thuộc bộ MONA Cloud của The MONA Group.**
