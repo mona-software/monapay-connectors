@@ -9,5 +9,8 @@
   },
   "scripts": {
     "test": "node --test test.js"
+  },
+  "dependencies": {
+    "@monapay/node": "^0.5.2"
   }
 }

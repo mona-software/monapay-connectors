@@ -1,4 +1,4 @@
-import { verifyWebhook } from '../../sdk/node/dist/index.js';
+import { verifyWebhook } from '@monapay/node';
 
 import { IdempotencyCache } from './idempotency.js';
 import { mapOrderId } from './mapping.js';

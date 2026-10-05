@@ -1,17 +1,11 @@
 # MONA Pay connector core
 
-A dependency-free Node.js server that receives MONA Pay webhooks at `POST /webhooks/monapay`, verifies the HMAC-SHA256 signature on the raw body, extracts the order ID and calls the configured platform adapter.
+A Node.js server that receives MONA Pay webhooks at `POST /webhooks/monapay`, verifies the HMAC-SHA256 signature on the raw body, extracts the order ID and calls the configured platform adapter.
 
 ## Requirements
 
 - Node.js 18 or later (uses the built-in `fetch`).
-- The MONA Pay Node SDK build (`@monapay/node`, `dist/` folder). `processor.js` imports `verifyWebhook` from `../../sdk/node/dist/index.js`, so the expected layout is:
-
-```text
-<workspace>/
-  sdk/node/dist/        # MONA Pay Node SDK build
-  connectors/           # this repository
-```
+- Dependencies installed from the repository root: `npm install` (pulls the MONA Pay Node SDK, `@monapay/node`, which provides `verifyWebhook`).
 
 ## Configuration
 
@@ -52,7 +46,7 @@ Each adapter adds its own variables; see `../adapters/<platform>/README.md`.
 set -a
 . /etc/monapay-connector.env
 set +a
-node connectors/core/server.js
+node core/server.js
 curl --fail http://127.0.0.1:8787/healthz
 ```
 
@@ -70,9 +64,9 @@ After=network-online.target
 [Service]
 User=monapay-connector
 Group=monapay-connector
-WorkingDirectory=/opt/monapay
+WorkingDirectory=/opt/monapay-connectors
 EnvironmentFile=/etc/monapay-connector.env
-ExecStart=/usr/bin/node /opt/monapay/connectors/core/server.js
+ExecStart=/usr/bin/node /opt/monapay-connectors/core/server.js
 Restart=on-failure
 NoNewPrivileges=true
 PrivateTmp=true
@@ -99,10 +93,10 @@ Do not expose `/healthz` publicly; monitor it from loopback.
 
 ### Docker
 
-The Dockerfile expects the workspace layout above as build context:
+Build from the repository root:
 
 ```bash
-docker build -f connectors/core/Dockerfile -t monapay-connector .
+docker build -f core/Dockerfile -t monapay-connector .
 docker run --rm --network host --env-file /etc/monapay-connector.env monapay-connector
 ```
 
@@ -116,6 +110,6 @@ npm test   # from the repository root; needs the SDK layout above
 
 ## License
 
-No license file is included in this repository yet.
+No license has been chosen for this repository yet.
 
 **MONA Pay is part of MONA Cloud by The MONA Group.**

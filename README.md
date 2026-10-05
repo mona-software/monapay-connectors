@@ -27,7 +27,7 @@ Repository: https://github.com/mona-software/monapay-connectors
 
 - Node.js 18 or later for `core/`, `adapters/` and the Node modules; Node.js 22 for `shopify-app/`.
 - No third-party npm dependencies.
-- `core/` imports the MONA Pay Node SDK from `../../sdk/node/dist` (see [`core/README.md`](core/README.md)).
+- `core/` uses the MONA Pay Node SDK (`@monapay/node`), installed with `npm install` (see [`core/README.md`](core/README.md)).
 - PHP 8.1+ for the OpenCart module; the PHP version required by your PrestaShop 8 or Magento 2 install for those modules.
 
 ## Status
@@ -44,15 +44,16 @@ Every adapter calls the endpoint described in the platform's public documentatio
 Run the root test suite (core + Shopify app):
 
 ```bash
+npm install
 npm test
 ```
 
-The core tests fail with `ERR_MODULE_NOT_FOUND` unless the MONA Pay Node SDK build is available at `../sdk/node/dist` relative to this repository. Each module under `modules/` and `shopify-app/` has its own test command; see its README.
+Each module under `modules/` and `shopify-app/` has its own test command; see its README.
 
 API documentation: https://monapay.vn/docs
 
 ## License
 
-No license file is included in this repository yet.
+No license has been chosen for this repository yet.
 
 **MONA Pay is part of MONA Cloud by The MONA Group.**
